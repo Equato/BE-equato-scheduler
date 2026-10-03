@@ -1,0 +1,10 @@
+# Build context: never the developer's secrets, dependencies or build output.
+.env
+.env.*
+!.env.example
+node_modules
+dist
+coverage
+*.log
+.git
+scripts/load/results

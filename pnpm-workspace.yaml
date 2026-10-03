@@ -1,0 +1,8 @@
+# Not a workspace — pnpm 12 moved settings here from package.json, and this is
+# the only supported place to approve postinstall scripts.
+#
+# esbuild compiles the platform binary that tsx and vitest execute.
+# msgpackr-extract is BullMQ's fast job serializer.
+allowBuilds:
+  esbuild: true
+  msgpackr-extract: true
