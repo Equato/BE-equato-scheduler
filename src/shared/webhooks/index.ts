@@ -28,6 +28,7 @@ import { z } from 'zod';
 
 const email = () => z.string().trim().toLowerCase().email().max(254);
 const uuid = () => z.uuid();
+const providerRef = () => z.string().min(3).max(120).regex(/^[\w.:-]+$/);
 
 /** One item extracted from a menu photo — becomes a DRAFT offering, never a live one. */
 export const scannedItem = z.strictObject({
@@ -51,6 +52,17 @@ export const WEBHOOK_EVENTS = {
   'scan-ai': {
     'scan.completed': z.strictObject({ scanJobId: uuid(), providerJobId: z.string().max(200).optional(), items: z.array(scannedItem).max(500) }),
     'scan.failed': z.strictObject({ scanJobId: uuid(), providerJobId: z.string().max(200).optional(), error: z.string().max(500) }),
+  },
+  /**
+   * Payment provider (billing). Events carry REFERENCES only: the scheduler
+   * reads the authoritative state back from the provider's API before acting,
+   * so even a valid signature cannot make Equato believe a payment succeeded.
+   * A real provider's adapter maps its native events onto these three.
+   */
+  payments: {
+    'checkout.updated': z.strictObject({ checkoutRef: providerRef() }),
+    'payment.updated': z.strictObject({ paymentRef: providerRef() }),
+    'mandate.updated': z.strictObject({ mandateRef: providerRef() }),
   },
   /** Connectivity checks and tests. */
   default: {

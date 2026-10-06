@@ -113,7 +113,14 @@ export const publicUrl = () =>
     .max(2048)
     .pipe(z.url({ message: 'must be a valid URL' }))
     .refine((v) => {
-      const u = new URL(v);
+      // Zod still runs this refinement when the URL check above failed, so a
+      // value like "example.com" must not reach `new URL` and throw.
+      let u: URL;
+      try {
+        u = new URL(v);
+      } catch {
+        return false;
+      }
       if (u.protocol !== 'https:') return false;
       if (u.username || u.password) return false;
       const host = u.hostname.replace(/^\[|\]$/g, '');

@@ -28,3 +28,4 @@ export * from './offering.js';
 export * from './review.js';
 export * from './offer.js';
 export * from './ops.js';
+export * from './billing.js';

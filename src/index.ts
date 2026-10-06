@@ -7,6 +7,7 @@ import { createRedis, createResponseCache, pingRedis } from './shared/redis/inde
 import { errorHandler } from './shared/http/errors.js';
 import { createStorage, storageConfigFromEnv } from './shared/storage/index.js';
 import { createQueueProducer } from './shared/queue/index.js';
+import { createPaymentProvider } from './shared/billing/index.js';
 import { startWorkers } from './workers.js';
 import { registerSchedules } from './schedules.js';
 import { sql } from 'drizzle-orm';
@@ -52,6 +53,7 @@ const jobs = startWorkers(
     responseCache: createResponseCache(redis, keys, { maxTtlMs: 5 * 60_000 }),
     queue: createQueueProducer(connection, keys.queuePrefix),
     scanProvider: providerFromEnv(env),
+    payments: createPaymentProvider(env, { redis, keys, log }),
   },
   { connection: workerConnection, prefix: keys.queuePrefix, concurrency: env.WORKER_CONCURRENCY },
 );

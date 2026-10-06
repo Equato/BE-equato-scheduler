@@ -77,11 +77,17 @@ describe('notifications from domain events', () => {
     const stranger = await shopper();
     const comparer = await shopper(); // saved a comparison this item is in — and ALSO favourited: still one notification
     const [{ groupId }] = (await t.ctx.db.select({ groupId: offerings.comparisonGroupId }).from(offerings).where(eq(offerings.id, offeringId))) as [{ groupId: string | null }];
+    // The suite runs against the shared dev database, where seeded shoppers may
+    // already follow this business or comparison; they are not under test.
+    const preexisting = new Set([
+      ...(await t.ctx.db.select({ u: favorites.userId }).from(favorites).where(eq(favorites.businessId, biz.id))).map((r) => r.u),
+      ...(groupId ? (await t.ctx.db.select({ u: savedComparisons.userId }).from(savedComparisons).where(eq(savedComparisons.comparisonGroupId, groupId))).map((r) => r.u) : []),
+    ]);
     await t.ctx.db.insert(favorites).values([{ userId: wants, businessId: biz.id }, { userId: optedOut, businessId: biz.id }, { userId: comparer, businessId: biz.id }]);
     if (groupId) await t.ctx.db.insert(savedComparisons).values({ userId: comparer, comparisonGroupId: groupId });
     const e = await event('price.dropped', { offeringId, businessId: biz.id, oldAmountMinor: 25000, newAmountMinor: 19900 });
     await processOutboxEvent(t.ctx, { outboxEventId: e.id });
-    const got = await delivered(e.id);
+    const got = (await delivered(e.id)).filter((n) => !preexisting.has(n.userId!));
     expect(got.map((n) => n.userId).sort()).toEqual([wants, comparer].sort());
     expect(got[0]).toMatchObject({ audience: 'USER', type: 'PRICE_DROP', link: `/item/${offeringId}` });
     expect(got[0]!.title).toContain('₹250 → ₹199');
@@ -89,7 +95,7 @@ describe('notifications from domain events', () => {
     // Redelivery: still exactly one each.
     await t.ctx.db.update(outboxEvents).set({ dispatchedAt: null }).where(eq(outboxEvents.id, e.id));
     await processOutboxEvent(t.ctx, { outboxEventId: e.id });
-    expect(await delivered(e.id)).toHaveLength(2);
+    expect((await delivered(e.id)).filter((n) => !preexisting.has(n.userId!))).toHaveLength(2);
   });
 
   it('saved-comparison shoppers hear about a price drop even without favouriting the business', async () => {

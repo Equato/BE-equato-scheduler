@@ -58,6 +58,23 @@ export const RATE_POLICIES = {
     block: { afterViolations: 3, baseMs: HOUR, maxMs: DAY },
     failMode: 'closed',
   }),
+  // Sending a login code is an email trigger: cap tightly per address AND per
+  // IP so neither one account nor one source can be used to flood mailboxes.
+  // Fails closed — with Redis down we cannot enforce it, so we do not send.
+  'otp.request': policy({
+    name: 'otp.request',
+    rules: { ip: rule(15, 15 * MIN), identifier: rule(5, HOUR) },
+    block: { afterViolations: 3, baseMs: 15 * MIN, maxMs: DAY },
+    failMode: 'closed',
+  }),
+  // Guessing a 6-digit code: per code the attempt counter caps it, this caps
+  // the attacker across codes, per identifier and per source IP.
+  'otp.verify': policy({
+    name: 'otp.verify',
+    rules: { ip: rule(30, 15 * MIN), identifier: rule(10, 15 * MIN) },
+    block: { afterViolations: 3, baseMs: 15 * MIN, maxMs: DAY },
+    failMode: 'closed',
+  }),
   // One tab refreshes every ~5 minutes. 30 in 5 minutes is a loop or an attack.
   'auth.refresh': policy({
     name: 'auth.refresh',
@@ -146,6 +163,30 @@ export const RATE_POLICIES = {
   'offer.redeem': policy({
     name: 'offer.redeem',
     rules: { user: rule(120, HOUR), ip: rule(300, HOUR) },
+    block: { afterViolations: 3, baseMs: HOUR, maxMs: DAY },
+    failMode: 'closed',
+  }),
+
+  /* ---------------- billing ---------------- */
+
+  // Starting a payment talks to the provider and creates rows: a handful an
+  // hour is an owner retrying; dozens is abuse. `resource` is the business.
+  'billing.checkout': policy({
+    name: 'billing.checkout',
+    rules: { user: rule(15, HOUR), resource: rule(10, HOUR), ip: rule(40, HOUR) },
+    block: { afterViolations: 3, baseMs: HOUR, maxMs: DAY },
+    failMode: 'closed',
+  }),
+  // Cancel, change plan, start a trial, resume.
+  'billing.mutation': policy({
+    name: 'billing.mutation',
+    rules: { user: rule(30, HOUR), resource: rule(20, HOUR) },
+    failMode: 'closed',
+  }),
+  // Quotes carry offer-code checks — the place codes would be guessed.
+  'billing.quote': policy({
+    name: 'billing.quote',
+    rules: { user: rule(60, HOUR), ip: rule(120, HOUR) },
     block: { afterViolations: 3, baseMs: HOUR, maxMs: DAY },
     failMode: 'closed',
   }),

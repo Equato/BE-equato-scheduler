@@ -28,7 +28,7 @@ export const OUTBOX = { maxAttempts: 10, sweepAfterMs: 60_000, sweepBatch: 500 }
 export const FANOUT = { chunk: 10_000 };
 
 type Audience = 'USER' | 'OWNER' | 'ADMIN';
-type NotificationType = 'APPROVED' | 'REJECTED' | 'MESSAGE' | 'PRICE_DROP' | 'OFFER' | 'SAVED' | 'REVIEW' | 'BUSINESS' | 'OWNER' | 'PRODUCT' | 'USER' | 'REPORT';
+type NotificationType = 'APPROVED' | 'REJECTED' | 'MESSAGE' | 'PRICE_DROP' | 'OFFER' | 'SAVED' | 'REVIEW' | 'BUSINESS' | 'OWNER' | 'PRODUCT' | 'USER' | 'REPORT' | 'BILLING';
 interface Draft {
   audience: Audience;
   /** Stable per recipient — part of the dedupe key. */
@@ -48,7 +48,7 @@ const DECISION_WORD: Record<string, string> = { APPROVE: 'approved', REJECT: 'no
 
 async function businessOf(ctx: JobContext, id: string | null | undefined) {
   if (!id) return null;
-  const [b] = await ctx.db.select({ id: businesses.id, name: businesses.name, slug: businesses.slug, ownerId: businesses.ownerId, status: businesses.publicationStatus }).from(businesses).where(eq(businesses.id, id)).limit(1);
+  const [b] = await ctx.db.select({ id: businesses.id, name: businesses.name, slug: businesses.slug, ownerId: businesses.ownerId, status: businesses.publicationStatus, isActive: businesses.isActive }).from(businesses).where(eq(businesses.id, id)).limit(1);
   return b ?? null;
 }
 
@@ -57,7 +57,45 @@ const toStaff = (d: Omit<Draft, 'audience' | 'recipient'>): Draft => ({ audience
 
 type Handler = (ctx: JobContext, p: Record<string, any>, eventId: string) => Promise<{ drafts: Draft[]; fanout?: number }>;
 
+const fmtDate = (iso: unknown) => (typeof iso === 'string' && iso ? new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' }) : '');
+
+/** Owner-facing wording for each billing event (shared/billing/lifecycle.ts). Amounts and dates come from the event, not from input. */
+function billingText(p: Record<string, any>): { title: string; body: string } | null {
+  const amount = typeof p.amountMinor === 'number' ? rupees(p.amountMinor) : '';
+  const plan = typeof p.planName === 'string' ? clip(p.planName, 60) : 'your plan';
+  const date = fmtDate(p.date);
+  const detail = typeof p.detail === 'string' ? clip(p.detail, 200) : '';
+  switch (p.kind) {
+    case 'TRIAL_STARTED': return { title: `Free trial started — ${plan}`, body: date ? `Your trial runs until ${date}.` : '' };
+    case 'TRIAL_ENDING': return { title: `Your free trial ends on ${date}`, body: detail };
+    case 'ACTIVATED': return { title: `${plan} is active`, body: date ? `Next renewal on ${date}.` : '' };
+    case 'RENEWED': return { title: `Renewed — ${plan}`, body: `${amount ? `Paid ${amount}. ` : ''}${date ? `Next renewal on ${date}.` : ''}`.trim() };
+    case 'PAYMENT_SUCCEEDED': return { title: `Payment received — ${amount}`, body: date ? `${plan} is paid until ${date}.` : '' };
+    case 'PAYMENT_FAILED': return { title: `Payment failed${amount ? ` — ${amount}` : ''}`, body: `${detail}${date ? ` Next attempt or deadline: ${date}.` : ''}`.trim() };
+    case 'PAST_DUE': return { title: `Renewal due — ${amount}`, body: `Renew by ${date} to keep ${plan}.` };
+    case 'RENEWAL_REMINDER': return { title: `${plan} renews on ${date}`, body: `${amount}. ${detail}`.trim() };
+    case 'CANCEL_SCHEDULED': return { title: `Your subscription ends on ${date}`, body: 'AutoPay has been turned off. You can resume any time before then.' };
+    case 'CANCELLED': return { title: 'Subscription cancelled', body: detail };
+    case 'RESUMED': return { title: 'Subscription resumed', body: date ? `It continues past ${date}.` : '' };
+    case 'EXPIRED': return { title: 'Subscription ended', body: detail };
+    case 'PLAN_CHANGE_SCHEDULED': return { title: `Plan change scheduled — ${plan}`, body: `Starts on ${date}${amount ? ` at ${amount}` : ''}.` };
+    case 'PLAN_CHANGED': return { title: `You're now on ${plan}`, body: amount ? `${amount} per period.` : '' };
+    case 'MANDATE_CREATED': return { title: 'AutoPay is set up', body: `Up to ${amount} each period${date ? `, first on ${date}` : ''}. Cancel any time from Subscription & Billing.` };
+    case 'MANDATE_CANCELLED': return { title: 'AutoPay turned off', body: detail };
+    case 'PAUSED': return { title: 'Subscription paused', body: 'Renewals are on hold.' };
+    case 'REFUNDED': return { title: `Refund issued — ${amount}`, body: '' };
+    default: return null;
+  }
+}
+
 const HANDLERS: Record<string, Handler> = {
+  /** Subscription & billing → the business's owner (in-app, scoped to that business). */
+  'billing.event': async (ctx, p) => {
+    const b = await businessOf(ctx, p.businessId);
+    const text = billingText(p);
+    if (!b || !text) return { drafts: [] };
+    return { drafts: [toOwner(b, { type: 'BILLING', title: clip(text.title, 160), body: clip(text.body, 400), link: `/b/${b.id}/billing` })] };
+  },
   /** Something entered the approval queue: the shared staff inbox hears about new businesses and category requests. */
   'approval.submitted': async (ctx, p) => {
     if (p.entityType === 'BUSINESS') {
@@ -124,14 +162,14 @@ const HANDLERS: Record<string, Handler> = {
   'price.dropped': async (ctx, p, eventId) => {
     const [o] = await ctx.db.select({ name: offerings.name, status: offerings.publicationStatus, groupId: offerings.comparisonGroupId }).from(offerings).where(eq(offerings.id, p.offeringId)).limit(1);
     const b = await businessOf(ctx, p.businessId);
-    if (!o || !b || o.status !== 'APPROVED' || b.status !== 'APPROVED') return { drafts: [] };
+    if (!o || !b || o.status !== 'APPROVED' || b.status !== 'APPROVED' || !b.isActive) return { drafts: [] };
     const title = clip(`Price drop at ${b.name}: ${o.name} ${rupees(p.oldAmountMinor)} → ${rupees(p.newAmountMinor)}`, 160);
     return { drafts: [], fanout: await fanOut(ctx, eventId, { businessId: b.id, comparisonGroupId: o.groupId }, { type: 'PRICE_DROP', title, link: `/item/${p.offeringId}` }, 'price_alerts') };
   },
   'offer.published': async (ctx, p, eventId) => {
     const [offer] = (await ctx.db.execute(sql`SELECT title, status FROM offers WHERE id = ${p.offerId}::uuid`)) as unknown as { title: string; status: string }[];
     const b = await businessOf(ctx, p.businessId);
-    if (!offer || !b || offer.status !== 'ACTIVE' || b.status !== 'APPROVED') return { drafts: [] };
+    if (!offer || !b || offer.status !== 'ACTIVE' || b.status !== 'APPROVED' || !b.isActive) return { drafts: [] };
     return { drafts: [], fanout: await fanOut(ctx, eventId, { businessId: b.id }, { type: 'OFFER', title: clip(`New offer at ${b.name}: ${offer.title}`, 160), link: `/business/${b.slug}` }, 'offer_alerts') };
   },
 

@@ -12,6 +12,7 @@ import {
   customType,
   index,
   integer,
+  pgSequence,
   pgTable,
   text,
   timestamp,
@@ -27,7 +28,7 @@ import {
   sessionRevocationReasonEnum,
   userStatusEnum,
 } from './_enums.js';
-import { createdAt, deletedAt, fk, primaryId, timestamps, updatedAt } from './_shared.js';
+import { createdAt, deletedAt, fk, primaryId, readableCode, timestamps, updatedAt } from './_shared.js';
 import { areas } from './location.js';
 import { businesses } from './business.js';
 import { categories } from './category.js';
@@ -48,10 +49,14 @@ const citext = customType<{ data: string; driverData: string }>({
  * precondition for adding Google/Apple sign-in without a migration.
  * ------------------------------------------------------------------------- */
 
+/** Readable user codes: USR-2026-00000123 (readableCode). */
+export const userCodeSeq = pgSequence('user_code_seq', { startWith: 1 });
+
 export const users = pgTable(
   'users',
   {
     id: primaryId(),
+    code: readableCode('USR', 'user_code_seq'),
     email: citext('email').notNull(),
     name: text('name').notNull(),
     phone: varchar('phone', { length: 32 }),
@@ -66,6 +71,7 @@ export const users = pgTable(
   (t) => [
     // Partial: a soft-deleted account must not block the address being reused.
     uniqueIndex('users_email_uq').on(t.email).where(sql`deleted_at IS NULL`),
+    uniqueIndex('users_code_uq').on(t.code),
     index('users_status_created_idx').on(t.status, t.createdAt.desc()),
     // Admin console: server-side search by name or email fragment.
     index('users_name_trgm').using('gin', sql`${t.name} gin_trgm_ops`),

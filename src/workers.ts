@@ -8,6 +8,9 @@ import { analyticsEvents, analyticsRollup } from './jobs/analytics.js';
 import { processWebhook } from './jobs/webhooks.js';
 import { menuScan } from './jobs/menu-scan.js';
 import { processOutboxEvent } from './jobs/notify.js';
+import { billing, registerBillingWebhooks } from './jobs/billing.js';
+
+registerBillingWebhooks();
 
 /**
  * One BullMQ Worker per queue with a handler. Workers on any number of
@@ -26,6 +29,7 @@ export const HANDLERS: { [N in keyof JobPayloads]?: Handler<N> } = {
   [QueueName.WEBHOOKS]: processWebhook,
   [QueueName.MENU_SCAN]: menuScan,
   [QueueName.NOTIFICATIONS]: processOutboxEvent,
+  [QueueName.BILLING]: billing,
 };
 
 export function startWorkers(ctx: JobContext, opts: { connection: Redis; prefix: string; concurrency: number; only?: (keyof JobPayloads)[] }) {

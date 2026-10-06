@@ -13,6 +13,7 @@ import {
   index,
   integer,
   numeric,
+  pgSequence,
   pgTable,
   smallint,
   text,
@@ -22,7 +23,7 @@ import {
   check,
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
-import { publicationStatusEnum, removalStatusEnum } from './_enums.js';
+import { deliveryProviderEnum, publicationStatusEnum, removalStatusEnum } from './_enums.js';
 import {
   clockTime,
   createdAt,
@@ -30,6 +31,7 @@ import {
   fk,
   geoPoint,
   primaryId,
+  readableCode,
   timestamps,
 } from './_shared.js';
 import { areas } from './location.js';
@@ -45,10 +47,14 @@ import { media } from './ops.js';
  * data never mixes between them (brief §11).
  * ------------------------------------------------------------------------- */
 
+/** Readable business codes: BIZ-2026-00000045 (readableCode). */
+export const businessCodeSeq = pgSequence('business_code_seq', { startWith: 1 });
+
 export const businesses = pgTable(
   'businesses',
   {
     id: primaryId(),
+    code: readableCode('BIZ', 'business_code_seq'),
     ownerId: fk('owner_id')
       .notNull()
       .references(() => businessOwners.id, { onDelete: 'restrict' }),
@@ -95,6 +101,28 @@ export const businesses = pgTable(
     /** Most recent rejection reason. Full history lives in business_rejections. */
     rejectionReason: text('rejection_reason'),
     isVerified: boolean('is_verified').notNull().default(false),
+    /**
+     * The owner's own on/off switch. An APPROVED business that the owner has
+     * made inactive is hidden from shoppers exactly like an unapproved one —
+     * see publicBusiness() in modules/visibility.ts. It never affects the
+     * approval workflow, and turning it back on needs no review.
+     */
+    isActive: boolean('is_active').notNull().default(true),
+
+    /** The business's own website (https only — see publicUrl()). Live immediately. */
+    websiteUrl: text('website_url'),
+    /**
+     * How many branches the brand has in total, this one included, when it
+     * has more than one — some may not be on Equato. Null means a single
+     * branch. Shared by every business in the same branch group.
+     */
+    branchCount: smallint('branch_count'),
+    /**
+     * Businesses of ONE owner that are branches of the same brand share this
+     * value (the id of the business that started the group). Shoppers see the
+     * other public branches on each branch's page.
+     */
+    branchGroupId: fk('branch_group_id'),
     /** The owner's logo, once processed. Null → the generated initials mark. */
     logoMediaId: fk('logo_media_id').references((): AnyPgColumn => media.id, { onDelete: 'set null' }),
     isPureVegetarian: boolean('is_pure_vegetarian'),
@@ -113,7 +141,12 @@ export const businesses = pgTable(
   (t) => [
     check('businesses_location_ck', sql`ST_Y(location::geometry) BETWEEN -90 AND 90 AND ST_X(location::geometry) BETWEEN -180 AND 180 AND NOT (ST_X(location::geometry) = 0 AND ST_Y(location::geometry) = 0)`),
     check('businesses_slug_ck', sql`slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$'`),
+    uniqueIndex('businesses_code_uq').on(t.code),
     check('businesses_rating_ck', sql`rating_avg BETWEEN 0 AND 5 AND rating_count >= 0`),
+    check('businesses_branch_count_ck', sql`branch_count IS NULL OR branch_count BETWEEN 2 AND 9999`),
+    index('businesses_branch_group_idx')
+      .on(t.branchGroupId)
+      .where(sql`branch_group_id IS NOT NULL`),
     uniqueIndex('businesses_slug_uq').on(t.slug),
 
     // Business Portal: "my businesses", loaded on every page of the portal.
@@ -228,6 +261,21 @@ export const businessSpecialHours = pgTable(
  * the reason this is a flag rather than two tables is that both kinds are
  * filtered identically on the search page.
  */
+/** A business's store page on a delivery app: one link per provider. Live immediately. */
+export const businessDeliveryLinks = pgTable(
+  'business_delivery_links',
+  {
+    id: primaryId(),
+    businessId: fk('business_id')
+      .notNull()
+      .references(() => businesses.id, { onDelete: 'cascade' }),
+    provider: deliveryProviderEnum('provider').notNull(),
+    url: text('url').notNull(),
+    ...timestamps(),
+  },
+  (t) => [uniqueIndex('business_delivery_links_uq').on(t.businessId, t.provider)],
+);
+
 export const businessAmenities = pgTable(
   'business_amenities',
   {

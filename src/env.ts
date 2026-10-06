@@ -23,6 +23,11 @@ const schema = baseEnvSchema
     ANTHROPIC_API_KEY: z.string().min(20).optional(),
     SCAN_AI_MODEL: z.string().min(3).default('claude-opus-5'),
     SCAN_AI_TIMEOUT_MS: z.coerce.number().int().min(10_000).max(600_000).default(180_000),
+    /** Billing provider — must match equato-api's. `none` skips billing jobs. */
+    PAYMENT_PROVIDER: z.enum(['none', 'mock']).default('none'),
+    PAYMENT_MOCK_HOSTED_URL: z.string().url().default('http://127.0.0.1:4010/dev/mock-pay'),
+    PAYMENT_MOCK_WEBHOOK_URL: z.string().url().optional(),
+    WEBHOOK_SECRET_PAYMENTS: z.string().min(32).optional(),
   });
 
 export type SchedulerEnv = z.infer<typeof schema>;
@@ -30,6 +35,7 @@ export const env: SchedulerEnv = parseEnv(schema, process.env, [
   (e) => checkProductionSafety(e),
   // A burst of jobs must not be able to exhaust the connection pool.
   (e) => (e.NODE_ENV === 'production' && e.SCAN_AI_PROVIDER === 'mock' ? 'SCAN_AI_PROVIDER=mock is not allowed in production' : null),
+  (e) => (e.NODE_ENV === 'production' && e.PAYMENT_PROVIDER === 'mock' ? 'PAYMENT_PROVIDER=mock is not allowed in production' : null),
   (e) => (e.SCAN_AI_PROVIDER === 'anthropic' && !e.ANTHROPIC_API_KEY ? 'SCAN_AI_PROVIDER=anthropic needs ANTHROPIC_API_KEY' : null),
   (e) => (e.WORKER_CONCURRENCY > e.DATABASE_POOL_MAX ? 'WORKER_CONCURRENCY must not exceed DATABASE_POOL_MAX' : null),
 ]);

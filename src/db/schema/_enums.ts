@@ -144,6 +144,7 @@ export const notificationTypeEnum = pgEnum('notification_type', [
   'PRODUCT',
   'USER',
   'REPORT',
+  'BILLING',
 ]);
 
 /** Rollout state of a city, so "coming soon" is data rather than a hardcoded list. */
@@ -237,3 +238,26 @@ export const securityEventTypeEnum = pgEnum('security_event_type', [
 ]);
 
 export const securitySeverityEnum = pgEnum('security_severity', ['INFO', 'WARNING', 'CRITICAL']);
+
+/**
+ * Delivery / quick-commerce apps a business can link its store page on.
+ * Each provider's links are checked against that provider's own hosts
+ * (modules/businesses/links.ts), so a "Swiggy" button can only open Swiggy.
+ */
+export const deliveryProviderEnum = pgEnum('delivery_provider', ['SWIGGY', 'ZOMATO', 'MAGICPIN', 'BLINKIT', 'ZEPTO']);
+
+/* ---------------------------------------------------------------------------
+ * Billing — business subscriptions. Mirrors src/shared/domain/billing.ts.
+ * ------------------------------------------------------------------------- */
+export const planStatusEnum = pgEnum('plan_status', ['DRAFT', 'ACTIVE', 'INACTIVE', 'ARCHIVED']);
+export const planVisibilityEnum = pgEnum('plan_visibility', ['PUBLIC', 'HIDDEN']);
+export const billingIntervalEnum = pgEnum('billing_interval', ['MONTH', 'YEAR']);
+export const subscriptionStatusEnum = pgEnum('subscription_status', ['TRIALING', 'ACTIVE', 'PAST_DUE', 'PAUSED', 'CANCELLED', 'EXPIRED']);
+export const paymentStatusEnum = pgEnum('payment_status', ['CREATED', 'PENDING', 'AUTHORIZED', 'SUCCEEDED', 'FAILED', 'CANCELLED', 'REFUNDED', 'EXPIRED']);
+export const paymentMethodTypeEnum = pgEnum('payment_method_type', ['UPI', 'CARD']);
+export const mandateStatusEnum = pgEnum('mandate_status', ['CREATED', 'PENDING', 'ACTIVE', 'PAUSED', 'CANCELLED', 'FAILED', 'EXPIRED']);
+export const invoiceStatusEnum = pgEnum('invoice_status', ['OPEN', 'PAID', 'FAILED', 'VOID', 'REFUNDED']);
+export const checkoutStatusEnum = pgEnum('checkout_status', ['OPEN', 'COMPLETED', 'FAILED', 'EXPIRED', 'CANCELLED']);
+export const checkoutKindEnum = pgEnum('checkout_kind', ['SUBSCRIBE', 'RENEW', 'PAYMENT_METHOD']);
+export const discountTypeEnum = pgEnum('discount_type', ['PERCENT', 'AMOUNT_OFF', 'FIXED_PRICE']);
+export const paymentKindEnum = pgEnum('payment_kind', ['CHARGE', 'MANDATE_SETUP', 'REFUND']);

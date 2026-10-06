@@ -13,6 +13,7 @@ import {
   integer,
   jsonb,
   numeric,
+  pgSequence,
   pgTable,
   text,
   timestamp,
@@ -31,6 +32,7 @@ import {
   deletedAt,
   fk,
   primaryId,
+  readableCode,
   timestamps,
 } from './_shared.js';
 import { businesses, businessGroups } from './business.js';
@@ -121,10 +123,14 @@ export const comparisonAliases = pgTable(
  * against that category's `category_fields`.
  * ------------------------------------------------------------------------- */
 
+/** Readable product codes: PRD-2026-00001872 (readableCode). */
+export const offeringCodeSeq = pgSequence('offering_code_seq', { startWith: 1 });
+
 export const offerings = pgTable(
   'offerings',
   {
     id: primaryId(),
+    code: readableCode('PRD', 'offering_code_seq'),
     businessId: fk('business_id')
       .notNull()
       .references(() => businesses.id, { onDelete: 'cascade' }),
@@ -156,6 +162,15 @@ export const offerings = pgTable(
 
     ratingAvg: numeric('rating_avg', { precision: 2, scale: 1 }).notNull().default('0'),
     ratingCount: integer('rating_count').notNull().default(0),
+
+    /**
+     * The owner's own highlights on the menu: "Our special" and "Best seller".
+     * Live immediately, capped per business (modules/offerings/service.ts).
+     * "Top rated" is NOT stored — it is earned from customer ratings.
+     */
+    isSpecial: boolean('is_special').notNull().default(false),
+    isBestseller: boolean('is_bestseller').notNull().default(false),
+
     /**
      * The open price in offering_prices, copied here by a trigger
      * (offering_prices_sync_current) so a comparison can take its cheapest
@@ -171,9 +186,14 @@ export const offerings = pgTable(
   },
   (t) => [
     check('offerings_rating_ck', sql`rating_avg BETWEEN 0 AND 5 AND rating_count >= 0`),
+    uniqueIndex('offerings_code_uq').on(t.code),
     check('offerings_window_ck', sql`availability_mode <> 'WINDOW' OR (available_from IS NOT NULL AND available_to IS NOT NULL)`),
     // Business menu, and the owner's item list with its status tabs.
     index('offerings_business_idx').on(t.businessId, t.publicationStatus),
+    // The highlights strip at the top of a business's menu.
+    index('offerings_highlight_idx')
+      .on(t.businessId)
+      .where(sql`(is_special OR is_bestseller) AND deleted_at IS NULL`),
 
     // THE comparison query. Partial, because only approved rows ever compare.
     // Cheapest-first comparison pages: ORDER BY price, id LIMIT n, served by the index.

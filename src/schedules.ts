@@ -26,6 +26,10 @@ export const SCHEDULES: Schedule[] = [
   { id: 'media-requeue', queue: 'maintenance', everyMs: 15 * 60_000, payload: { task: 'media-requeue' } },
   { id: 'analytics-retention', queue: 'maintenance', pattern: '45 20 * * *', payload: { task: 'analytics-retention' } }, // 02:15 IST, after partitions
   { id: 'job-runs-retention', queue: 'maintenance', pattern: '0 22 * * 0', payload: { task: 'job-runs-retention' } },
+  // Subscription billing (SUBSCRIPTIONS.md §9).
+  { id: 'billing-cycle', queue: 'billing', everyMs: 5 * 60_000, payload: { task: 'cycle' } },
+  { id: 'billing-reconcile', queue: 'billing', everyMs: 5 * 60_000, payload: { task: 'reconcile' } },
+  { id: 'billing-reminders', queue: 'billing', pattern: '30 3 * * *', payload: { task: 'reminders' } }, // 09:00 IST
 ];
 
 export async function registerSchedules(queueFor: (name: keyof JobPayloads) => Queue, schedules: Schedule[] = SCHEDULES) {

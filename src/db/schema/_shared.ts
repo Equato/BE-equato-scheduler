@@ -7,7 +7,7 @@
  * package is the proper fix once a registry exists.
  * ------------------------------------------------------------------------- */
 import { sql } from 'drizzle-orm';
-import { bigint, customType, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { bigint, customType, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 
 /* ---------------------------------------------------------------------------
  * Column primitives used across every table.
@@ -48,6 +48,24 @@ export const updatedAt = () =>
 export const deletedAt = () => timestamp('deleted_at', { withTimezone: true, mode: 'date' });
 
 export const timestamps = () => ({ createdAt: createdAt(), updatedAt: updatedAt() });
+
+/**
+ * A readable reference for support and admin — `USR-2026-00000123` — beside
+ * the UUID, never instead of it (links and foreign keys keep using the id).
+ *
+ * The number comes from a per-type sequence that never resets, so a code is
+ * never issued twice, not even across years (the year is just when the row
+ * was created); a UNIQUE index on the column backs that up. Padded to at
+ * least 8 digits, growing past that rather than truncating.
+ * Existing rows got theirs in creation order, with their creation year.
+ */
+export const readableCode = (prefix: string, sequence: string) =>
+  text('code')
+    .notNull()
+    .default(
+      // readable_code() is created by migration 0023; one nextval per row.
+      sql.raw(`readable_code('${prefix}', nextval('${sequence}'))`),
+    );
 
 /**
  * Money, in minor units (paise).
